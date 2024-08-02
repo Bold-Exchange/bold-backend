@@ -2,15 +2,18 @@ const pool = require("../db/db");
 const { createResponse } = require("../utils/response");
 const { generateToken } = require("../middlewares/authMiddleware");
 
+const bcrypt = require("bcrypt");
+
 // 注册用户
 const registerUser = async (ctx) => {
   const { username, password, email } = ctx.request.body;
   try {
+    const hashedPassword = await bcrypt.hash(password, 10); // 10 是盐值轮数
     const [result] = await pool.query(
       "INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
-      [username, password, email]
+      [username, hashedPassword, email]
     );
-    ctx.body = createResponse(201, "User registered successfully", {
+    ctx.body = createResponse(200, "User registered successfully", {
       id: result.insertId,
     });
   } catch (err) {
@@ -23,13 +26,19 @@ const registerUser = async (ctx) => {
 const loginUser = async (ctx) => {
   const { username, password } = ctx.request.body;
   try {
-    const [rows] = await pool.query(
-      "SELECT * FROM users WHERE username = ? AND password = ?",
-      [username, password]
-    );
+    const [rows] = await pool.query("SELECT * FROM users WHERE username = ?", [
+      username,
+    ]);
     if (rows.length > 0) {
-      const token = generateToken({ username });
-      ctx.body = createResponse(200, "Login successful", { token });
+      const user = rows[0];
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (isPasswordValid) {
+        const token = generateToken({ username });
+        ctx.body = createResponse(200, "Login successful", { token });
+      } else {
+        ctx.status = 401;
+        ctx.body = createResponse(401, "Unauthorized");
+      }
     } else {
       ctx.status = 401;
       ctx.body = createResponse(401, "Unauthorized");
